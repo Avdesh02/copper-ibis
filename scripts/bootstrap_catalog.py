@@ -29,6 +29,9 @@ import time
 
 CATALOGS = {
     "dev": "wind_dev_copper_ibis",
+    # The shared CI environment lives in the dev catalog under its own `ci_` schema
+    # prefix, so it needs no catalog of its own.
+    "ci": "wind_dev_copper_ibis",
     "prod": "wind_prod_copper_ibis",
 }
 

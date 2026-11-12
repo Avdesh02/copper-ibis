@@ -56,6 +56,36 @@ targets:
       host: https://dbc-0090b005-ba2d.cloud.databricks.com
     variables:
       catalog: wind_dev_copper_ibis
+    permissions:
+      # Once a permissions block exists it must name every identity that manages the
+      # bundle, the deploying user included - otherwise the workspace folder carries a
+      # grant the bundle does not declare and strict validation fails.
+      - user_name: python3todjango@gmail.com
+        level: CAN_MANAGE
+      - service_principal_name: ${var.ci_service_principal}
+        level: CAN_MANAGE
+
+  # Shared integration environment deployed by CI on every merge.
+  #
+  # Uses `mode: production` rather than `development` deliberately. Development mode
+  # prefixes every object with the *deploying identity*, so a CI deploy would stand up
+  # a second parallel stack named after the service principal instead of updating the
+  # shared one. Production mode keeps the names stable, which is what a shared
+  # environment needs; it still points at the dev catalog, and the schedule stays
+  # paused because only prod overrides pause_status.
+  ci:
+    mode: production
+    workspace:
+      host: https://dbc-0090b005-ba2d.cloud.databricks.com
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: wind_dev_copper_ibis
+      schema_prefix: "ci_"
+    permissions:
+      - user_name: python3todjango@gmail.com
+        level: CAN_MANAGE
+      - service_principal_name: ${var.ci_service_principal}
+        level: CAN_MANAGE
 
   prod:
     mode: production
@@ -69,7 +99,13 @@ targets:
       window_duration: 15 minutes
       rows_per_site: "5000"
     permissions:
-      - user_name: ${workspace.current_user.userName}
+      - user_name: python3todjango@gmail.com
+        level: CAN_MANAGE
+      # The CI service principal deploys prod, so it owns the bundle's workspace
+      # folder. Declaring it here keeps `validate --strict` clean: otherwise the
+      # folder carries a CAN_MANAGE grant the bundle does not account for, which
+      # strict mode treats as an error.
+      - service_principal_name: ${var.ci_service_principal}
         level: CAN_MANAGE
     # Prod-only overrides of values that default to the dev-safe setting.
     resources:

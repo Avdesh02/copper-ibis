@@ -1,4 +1,4 @@
-name: Deploy to dev
+name: Deploy to CI environment
 
 # Deploys on every merge to main. Dev is disposable, so this needs no approval.
 on:
@@ -32,10 +32,10 @@ jobs:
         # A DAB cannot create the catalog in this workspace (Default Storage is on and
         # the catalogs API rejects it), so this runs CREATE CATALOG over SQL first.
         # Idempotent: a no-op once the catalog exists.
-        run: python scripts/bootstrap_catalog.py --target dev --profile ""
+        run: python scripts/bootstrap_catalog.py --target ci --profile ""
 
       - name: Deploy
-        run: databricks bundle deploy --target dev
+        run: databricks bundle deploy --target ci
 
       - name: Summary
-        run: databricks bundle summary --target dev
+        run: databricks bundle summary --target ci

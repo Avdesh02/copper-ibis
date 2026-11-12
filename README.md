@@ -192,9 +192,25 @@ ruff check src tests scripts
 
 | Workflow | Trigger | Does |
 |---|---|---|
-| `ci.yml` | PR, push to main | ruff, pytest, `bundle validate --strict` for both targets |
-| `cd-dev.yml` | merge to main | bootstrap catalog, deploy dev |
+| `ci.yml` | PR, push to main | ruff, pytest, `bundle validate --strict` on every target |
+| `cd-ci.yml` | merge to main | bootstrap catalog, deploy the shared `ci` environment |
 | `cd-prod.yml` | manual only | confirmation input, tests, approval gate, deploy prod |
+
+### Targets
+
+| Target | Catalog | Schema prefix | Who deploys |
+|---|---|---|---|
+| `dev` | `wind_dev_copper_ibis` | `dev_<user>_` | a developer, from their machine |
+| `ci` | `wind_dev_copper_ibis` | `ci_` | GitHub Actions, on merge to main |
+| `prod` | `wind_prod_copper_ibis` | *(none)* | GitHub Actions, manual dispatch |
+
+`dev` uses `mode: development`, which prefixes every object with the deploying
+identity — ideal for per-developer sandboxes that never collide. `ci` deliberately
+uses `mode: production` instead: under development mode a CI deploy would prefix
+objects with the *service principal's* name and stand up a whole second stack rather
+than updating the shared one. Production mode keeps those names stable. `ci` still
+points at the dev catalog and its schedule stays paused, since only `prod` unpauses
+it.
 
 ### Authentication
 
