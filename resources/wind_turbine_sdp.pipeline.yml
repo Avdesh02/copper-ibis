@@ -1,0 +1,91 @@
+# Lakeflow Spark Declarative Pipeline (SDP).
+#
+# This file carries the STATIC half of the parameterization. Everything under
+# `configuration:` is fixed at deploy time and read in pipeline code via
+# spark.conf.get(...). Values are ALWAYS strings — a list has to be a delimited string
+# that the code splits (see lib/config.py).
+#
+# The DYNAMIC half lives in the orchestrator job (run id, start date, per-site fan-out)
+# and in the ops.site_config control table, which the pipeline can read without a
+# redeploy. A pipeline_task cannot pass per-run parameters, which is exactly why the
+# control table exists.
+
+resources:
+  pipelines:
+    wind_turbine_sdp:
+      name: wind_turbine_sdp_copper_ibis
+      catalog: ${var.catalog}
+      # Reference the deployed schema resources rather than literal names: in dev,
+      # `mode: development` prefixes schemas (raw -> dev_<user>_raw), so a hardcoded
+      # name would point at a schema that does not exist.
+      schema: ${var.schema_prefix}bronze
+
+      serverless: true
+      # ADVANCED is required for Auto CDC / SCD Type 2.
+      edition: ADVANCED
+      channel: CURRENT
+      photon: true
+
+      # Triggered, not continuous: continuous pipelines retry failed updates forever.
+      continuous: false
+      # Dev vs prod behaviour (development mode, name prefixing, paused schedules) comes
+      # from the target's `mode:` in databricks.yml - the per-pipeline `development`
+      # field is deprecated.
+
+      root_path: ../src
+      libraries:
+        - glob:
+            include: ../src/turbine_pipeline/transformations/**
+
+      environment:
+        dependencies:
+          - --editable ${workspace.file_path}
+
+      event_log:
+        catalog: ${var.catalog}
+        schema: ${var.schema_prefix}ops
+        name: turbine_pipeline_event_log_copper_ibis
+
+      configuration:
+        # --- STATIC: topology ---
+        turbine.catalog: ${var.catalog}
+        turbine.sites: rajasthan,tamil_nadu,maharashtra,gujarat,karnataka
+        turbine.landing.sensors_path: /Volumes/${var.catalog}/${var.schema_prefix}raw/landing/sensors
+        turbine.landing.sensors_backfill_path: /Volumes/${var.catalog}/${var.schema_prefix}raw/landing/backfill
+        turbine.landing.turbines_path: /Volumes/${var.catalog}/${var.schema_prefix}raw/landing/turbines
+
+        # --- STATIC: target schemas ---
+        # The pipeline's default schema is bronze; silver and gold datasets name their
+        # schema explicitly so each medallion layer lands where it belongs.
+        turbine.schema.bronze: ${var.schema_prefix}bronze
+        turbine.schema.silver: ${var.schema_prefix}silver
+        turbine.schema.gold: ${var.schema_prefix}gold
+
+        # --- STATIC: aggregation ---
+        turbine.window_duration: ${var.window_duration}
+
+        # --- STATIC: default alert thresholds (fallback for every site) ---
+        turbine.threshold.default.oil_temperature.warn_min: "5.0"
+        turbine.threshold.default.oil_temperature.warn_max: "85.0"
+        turbine.threshold.default.oil_temperature.critical_min: "-10.0"
+        turbine.threshold.default.oil_temperature.critical_max: "95.0"
+        turbine.threshold.default.blade_velocity.warn_max: "18.0"
+        turbine.threshold.default.blade_velocity.critical_max: "22.0"
+        turbine.threshold.default.gear_friction.warn_max: "0.55"
+        turbine.threshold.default.gear_friction.critical_max: "0.75"
+
+        # --- STATIC: per-site overrides ---
+        # Rajasthan and Gujarat run hot, so a reading that would warn elsewhere is
+        # normal there. Karnataka is the coolest site and is held to a tighter bound.
+        # Only the overridden bound changes; the rest are inherited per-bound.
+        turbine.threshold.rajasthan.oil_temperature.warn_max: "92.0"
+        turbine.threshold.rajasthan.oil_temperature.critical_max: "100.0"
+        turbine.threshold.gujarat.oil_temperature.warn_max: "90.0"
+        turbine.threshold.karnataka.oil_temperature.warn_max: "80.0"
+        # Maharashtra's turbine is the smallest, so its rotor spins faster in normal use.
+        turbine.threshold.maharashtra.blade_velocity.warn_max: "20.0"
+        turbine.threshold.maharashtra.blade_velocity.critical_max: "24.0"
+
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

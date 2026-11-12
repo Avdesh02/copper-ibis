@@ -1,0 +1,38 @@
+# Unity Catalog schemas and the landing volume.
+#
+# The parent catalog is created by scripts/bootstrap_catalog.py, not here — see the note
+# in databricks.yml. These resources deploy into it.
+
+resources:
+  schemas:
+    raw:
+      catalog_name: ${var.catalog}
+      name: raw
+      comment: Landing zone. Holds the Volume that Auto Loader reads source files from.
+
+    bronze:
+      catalog_name: ${var.catalog}
+      name: bronze
+      comment: Raw ingested telemetry and turbine change events, as landed.
+
+    silver:
+      catalog_name: ${var.catalog}
+      name: silver
+      comment: Validated long/narrow sensor readings, the quarantine table, and the SCD2 turbine dimension.
+
+    gold:
+      catalog_name: ${var.catalog}
+      name: gold
+      comment: "Serving datasets: enriched readings, window aggregates, threshold alerts, current state."
+
+    ops:
+      catalog_name: ${var.catalog}
+      name: ops
+      comment: Operational metadata - site control table, run audit, and the pipeline event log.
+
+  volumes:
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: raw
+      name: landing
+      comment: Landing zone for sensor telemetry (sensors/) and turbine master data (turbines/).

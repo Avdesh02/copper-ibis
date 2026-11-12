@@ -1,0 +1,41 @@
+name: Deploy to dev
+
+# Deploys on every merge to main. Dev is disposable, so this needs no approval.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One deploy at a time; a newer commit supersedes an in-flight one.
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Bootstrap and deploy
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: databricks/setup-cli@main
+
+      - name: Bootstrap catalog
+        # A DAB cannot create the catalog in this workspace (Default Storage is on and
+        # the catalogs API rejects it), so this runs CREATE CATALOG over SQL first.
+        # Idempotent: a no-op once the catalog exists.
+        run: python scripts/bootstrap_catalog.py --target dev --profile ""
+
+      - name: Deploy
+        run: databricks bundle deploy --target dev
+
+      - name: Summary
+        run: databricks bundle summary --target dev

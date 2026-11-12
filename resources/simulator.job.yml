@@ -1,0 +1,76 @@
+# Standalone test-data simulation job.
+#
+# The orchestrator generates data as part of its chain; this job exists so data can be
+# produced on demand — to seed a fresh catalog, to top up a site, or to reproduce an
+# alert — without running the whole workflow.
+#
+# Takes a static site list by default rather than the control table, so it works even
+# before the control table exists.
+
+resources:
+  jobs:
+    wind_turbine_simulator:
+      name: wind_turbine_simulator_copper_ibis
+      description: >-
+        Generates synthetic turbine telemetry into the landing Volume for any subset of
+        sites. Used to seed and to reproduce alert conditions.
+
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        # Schema names are resolved from the deployed resources: dev mode prefixes them
+        # with [dev <user>], so literals would point at schemas that do not exist.
+        - name: raw_schema
+          default: ${var.schema_prefix}raw
+        - name: ops_schema
+          default: ${var.schema_prefix}ops
+        - name: gold_schema
+          default: ${var.schema_prefix}gold
+        - name: sites
+          # STATIC default: the full roster, as a JSON array for for_each `inputs`.
+          default: '["rajasthan", "tamil_nadu", "maharashtra", "gujarat", "karnataka"]'
+        - name: rows_per_site
+          default: ${var.rows_per_site}
+        - name: anomaly_rate
+          default: "0.05"
+        - name: run_id
+          default: "{{job.run_id}}" # DYNAMIC
+
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "3"
+            dependencies:
+              - --editable ${workspace.file_path}
+
+      tasks:
+        - task_key: simulate_sites
+          for_each_task:
+            inputs: "{{job.parameters.sites}}"
+            concurrency: 5
+            task:
+              task_key: simulate_one_site
+              max_retries: 1
+              environment_key: serverless_env
+              spark_python_task:
+                python_file: ../src/jobs/simulate_site.py
+                parameters:
+                  - "--site"
+                  - "{{input}}"
+                  - "--catalog"
+                  - "{{job.parameters.catalog}}"
+                  - "--raw-schema"
+                  - "{{job.parameters.raw_schema}}"
+                  - "--rows"
+                  - "{{job.parameters.rows_per_site}}"
+                  - "--anomaly-rate"
+                  - "{{job.parameters.anomaly_rate}}"
+                  - "--run-id"
+                  - "{{job.parameters.run_id}}"
+
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

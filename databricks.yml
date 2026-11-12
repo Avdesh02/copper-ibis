@@ -1,0 +1,68 @@
+# Wind turbine telemetry platform.
+#
+# Every Databricks object created from this bundle carries the `_copper_ibis` suffix,
+# matching the git folder name, so it never collides with other work in the workspace.
+#
+# NOTE: the Unity Catalog catalog itself is NOT created here. This workspace has Default
+# Storage enabled, and the catalogs API rejects creation without a managed location
+# (400 INVALID_STATE) whether called by the CLI or by a DAB `catalogs:` resource. Run
+# `python scripts/bootstrap_catalog.py --target <target>` first; it creates the catalog
+# over SQL, which does work. Schemas and volumes below deploy normally.
+
+bundle:
+  name: wind_turbine_copper_ibis
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog holding every layer for this environment.
+    default: wind_dev_copper_ibis
+  schema_prefix:
+    # `mode: development` prefixes every schema resource with "dev_<user>_", so a
+    # literal "raw" would point at a schema that does not exist. Paths and table names
+    # are built from this prefix instead; prod leaves it empty.
+    description: Prefix applied to schema names, matching the target's deployment mode.
+    default: "dev_${workspace.current_user.short_name}_"
+  notification_email:
+    description: Address notified when the orchestrator fails.
+    default: python3todjango@gmail.com
+  window_duration:
+    description: Tumbling window for the gold aggregates.
+    default: 5 minutes
+  rows_per_site:
+    description: Sensor events generated per site per simulator run.
+    default: "500"
+
+targets:
+  dev:
+    default: true
+    # development mode prefixes resources with [dev <user>] and pauses schedules, so dev
+    # runs stay clearly separated from anything else in this workspace.
+    mode: development
+    workspace:
+      profile: wind
+    variables:
+      catalog: wind_dev_copper_ibis
+
+  prod:
+    mode: production
+    workspace:
+      profile: wind
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: wind_prod_copper_ibis
+      # production mode does not prefix resource names.
+      schema_prefix: ""
+      window_duration: 15 minutes
+      rows_per_site: "5000"
+    permissions:
+      - user_name: ${workspace.current_user.userName}
+        level: CAN_MANAGE
+    # Prod-only overrides of values that default to the dev-safe setting.
+    resources:
+      jobs:
+        wind_turbine_orchestrator:
+          schedule:
+            pause_status: UNPAUSED

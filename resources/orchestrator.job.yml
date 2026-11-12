@@ -1,0 +1,201 @@
+# Orchestrator: the chained workflow tying simulation, the SDP pipeline and validation
+# together.
+#
+# Parameterization uses BOTH kinds of parameter:
+#
+#   STATIC  - `parameters:` defaults below and ${var.*} / ${bundle.target} bundle
+#             substitutions, all fixed when the bundle is deployed.
+#   DYNAMIC - {{...}} references the platform resolves per run: {{job.id}},
+#             {{job.run_id}}, {{job.name}}, {{job.trigger.type}}, {{job.repair_count}},
+#             {{job.start_time.iso_date}}, {{task.name}},
+#             {{tasks.<key>.values.<key>}} task values, {{tasks.<key>.result_state}},
+#             and {{input}} for the per-site value inside each for_each iteration.
+
+resources:
+  jobs:
+    wind_turbine_orchestrator:
+      name: wind_turbine_orchestrator_copper_ibis
+      description: >-
+        Seeds site config, simulates per-site telemetry, refreshes the SDP pipeline,
+        validates each site's gold output, and records a run audit row.
+
+      max_concurrent_runs: 1
+      queue:
+        enabled: true # queue overlapping runs rather than dropping them
+      timeout_seconds: 10800
+
+      # STATIC defaults; any can be overridden at run time. `processing_date` and
+      # `run_id` default to DYNAMIC references resolved per run.
+      parameters:
+        - name: env
+          default: ${bundle.target}
+        - name: catalog
+          default: ${var.catalog}
+        # Schema names are resolved from the deployed resources: dev mode prefixes them
+        # with [dev <user>], so literals would point at schemas that do not exist.
+        - name: raw_schema
+          default: ${var.schema_prefix}raw
+        - name: ops_schema
+          default: ${var.schema_prefix}ops
+        - name: gold_schema
+          default: ${var.schema_prefix}gold
+        - name: processing_date
+          default: "{{job.start_time.iso_date}}"
+        - name: run_id
+          default: "{{job.run_id}}"
+        - name: rows_per_site
+          default: ${var.rows_per_site}
+        - name: anomaly_rate
+          default: "0.05"
+        - name: disable_sites
+          default: ""
+
+      schedule:
+        quartz_cron_expression: "0 17 2 * * ?"
+        timezone_id: UTC
+        # Paused here; the prod target unpauses it in databricks.yml. `mode: development`
+        # would pause it in dev regardless, but being explicit keeps the intent clear.
+        pause_status: PAUSED
+
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+        no_alert_for_skipped_runs: true
+
+      # Serverless compute. This workspace has no classic clusters, and these tasks are
+      # light orchestration work that does not justify one. The bundle's own package is
+      # installed so `turbine_pipeline.lib` is importable from the task scripts.
+      environments:
+        - environment_key: serverless_env
+          spec:
+            client: "3"
+            dependencies:
+              - --editable ${workspace.file_path}
+
+      tasks:
+        # 1. Seed the control table; publish the active site list as a task value.
+        - task_key: publish_site_config
+          environment_key: serverless_env
+          spark_python_task:
+            python_file: ../src/jobs/publish_site_config.py
+            parameters:
+              - "--catalog"
+              - "{{job.parameters.catalog}}"
+              - "--ops-schema"
+              - "{{job.parameters.ops_schema}}"
+              - "--env"
+              - "{{job.parameters.env}}"
+              - "--run-id"
+              - "{{job.parameters.run_id}}"
+              - "--disable-sites"
+              - "{{job.parameters.disable_sites}}"
+
+        # 2. Fan out over the sites published above - one iteration per site.
+        - task_key: simulate_site_data
+          depends_on:
+            - task_key: publish_site_config
+          for_each_task:
+            # DYNAMIC: the list comes from the upstream task value, not from YAML.
+            inputs: "{{tasks.publish_site_config.values.active_sites}}"
+            concurrency: 5
+            task:
+              task_key: simulate_one_site
+              max_retries: 2
+              min_retry_interval_millis: 30000
+              environment_key: serverless_env
+              spark_python_task:
+                python_file: ../src/jobs/simulate_site.py
+                parameters:
+                  - "--site"
+                  - "{{input}}" # DYNAMIC: this iteration's site
+                  - "--catalog"
+                  - "{{job.parameters.catalog}}"
+                  - "--raw-schema"
+                  - "{{job.parameters.raw_schema}}"
+                  - "--rows"
+                  - "{{job.parameters.rows_per_site}}"
+                  - "--anomaly-rate"
+                  - "{{job.parameters.anomaly_rate}}"
+                  - "--run-id"
+                  - "{{job.parameters.run_id}}"
+
+        # 3. Refresh the SDP pipeline.
+        #    ALL_DONE: one site failing to generate data must not block ingest of the
+        #    sites that succeeded.
+        - task_key: run_sdp_pipeline
+          depends_on:
+            - task_key: simulate_site_data
+          run_if: ALL_DONE
+          pipeline_task:
+            # A pipeline_task takes only these two fields - it cannot carry per-run
+            # parameters, which is why per-site values travel via pipeline
+            # `configuration:` and the ops.site_config table instead.
+            pipeline_id: ${resources.pipelines.wind_turbine_sdp.id}
+            full_refresh: false
+
+        # 4. Validate each site's gold output.
+        - task_key: validate_site_outputs
+          depends_on:
+            - task_key: run_sdp_pipeline
+          for_each_task:
+            inputs: "{{tasks.publish_site_config.values.active_sites}}"
+            concurrency: 5
+            task:
+              task_key: validate_one_site
+              environment_key: serverless_env
+              spark_python_task:
+                python_file: ../src/jobs/validate_site.py
+                parameters:
+                  - "--site"
+                  - "{{input}}"
+                  - "--catalog"
+                  - "{{job.parameters.catalog}}"
+                  - "--gold-schema"
+                  - "{{job.parameters.gold_schema}}"
+                  - "--run-id"
+                  - "{{job.parameters.run_id}}"
+
+        # 5. Always record the outcome, successful or not.
+        - task_key: publish_run_summary
+          depends_on:
+            - task_key: validate_site_outputs
+          run_if: ALL_DONE
+          environment_key: serverless_env
+          spark_python_task:
+            python_file: ../src/jobs/publish_run_summary.py
+            parameters:
+              - "--catalog"
+              - "{{job.parameters.catalog}}"
+              - "--ops-schema"
+              - "{{job.parameters.ops_schema}}"
+              - "--env"
+              - "{{job.parameters.env}}"
+              # Every value below is a DYNAMIC reference resolved at run time.
+              - "--job-id"
+              - "{{job.id}}"
+              - "--job-name"
+              - "{{job.name}}"
+              - "--run-id"
+              - "{{job.run_id}}"
+              - "--trigger-type"
+              - "{{job.trigger.type}}"
+              - "--repair-count"
+              - "{{job.repair_count}}"
+              - "--processing-date"
+              - "{{job.parameters.processing_date}}"
+              - "--task-name"
+              - "{{task.name}}"
+              - "--site-count"
+              - "{{tasks.publish_site_config.values.site_count}}"
+              - "--config-state"
+              - "{{tasks.publish_site_config.result_state}}"
+              - "--simulate-state"
+              - "{{tasks.simulate_site_data.result_state}}"
+              - "--pipeline-state"
+              - "{{tasks.run_sdp_pipeline.result_state}}"
+              - "--validate-state"
+              - "{{tasks.validate_site_outputs.result_state}}"
+
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
