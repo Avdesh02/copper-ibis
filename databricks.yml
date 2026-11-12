@@ -34,6 +34,12 @@ variables:
   rows_per_site:
     description: Sensor events generated per site per simulator run.
     default: "500"
+  ci_service_principal:
+    # The CI identity GitHub Actions authenticates as. Declared here so every deploy
+    # re-grants it CAN_MANAGE, rather than the grants being manual one-offs that get
+    # lost the next time a resource is recreated.
+    description: Application ID of the service principal used by CI/CD.
+    default: d4dc6166-ad2a-4490-a4e7-37cce791f5a9
 
 targets:
   dev:

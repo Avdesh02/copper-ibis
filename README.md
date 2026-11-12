@@ -196,8 +196,46 @@ ruff check src tests scripts
 | `cd-dev.yml` | merge to main | bootstrap catalog, deploy dev |
 | `cd-prod.yml` | manual only | confirmation input, tests, approval gate, deploy prod |
 
-Authentication uses OAuth M2M repo secrets — `DATABRICKS_HOST`,
-`DATABRICKS_CLIENT_ID`, `DATABRICKS_CLIENT_SECRET`. No token is ever committed.
+### Authentication
+
+CI authenticates as a dedicated service principal using OAuth M2M (client credentials).
+No personal token and no secret is ever committed.
+
+| Item | Value |
+|---|---|
+| Service principal | `wind_turbine_ci_copper_ibis` |
+| Application (client) ID | `d4dc6166-ad2a-4490-a4e7-37cce791f5a9` |
+| Workspace host | `https://dbc-0090b005-ba2d.cloud.databricks.com` |
+
+Its access is declared in the bundle (`var.ci_service_principal`), so every deploy
+re-grants `CAN_MANAGE` on the jobs and pipeline rather than depending on manual
+one-off grants. It also holds catalog privileges (`USE_CATALOG`, `CREATE_SCHEMA`,
+`CREATE_TABLE`, `CREATE_VOLUME`, `MODIFY`, `SELECT`, `READ_VOLUME`, `WRITE_VOLUME`)
+and `CAN_USE` on the SQL warehouse the catalog bootstrap needs.
+
+#### Issuing the client secret
+
+Generate the secret and paste it **straight into GitHub** — never into a terminal, a
+file, a chat window, or anywhere it would be captured in history.
+
+1. Databricks **Account console → User management → Service principals →
+   `wind_turbine_ci_copper_ibis` → Secrets → Generate secret**. Copy the value; it is
+   shown exactly once.
+2. GitHub → repo **Settings → Secrets and variables → Actions → New repository
+   secret**, and add:
+
+   | Name | Value |
+   |---|---|
+   | `DATABRICKS_HOST` | `https://dbc-0090b005-ba2d.cloud.databricks.com` |
+   | `DATABRICKS_CLIENT_ID` | `d4dc6166-ad2a-4490-a4e7-37cce791f5a9` |
+   | `DATABRICKS_CLIENT_SECRET` | the generated secret |
+
+3. For prod approvals, create a `production` GitHub Environment with required
+   reviewers — `cd-prod.yml` gates on it.
+
+If a secret is ever exposed, revoke it immediately in the same Secrets tab and
+generate a new one; rotating costs nothing and a leaked secret grants deploy access to
+the whole catalog.
 
 ---
 

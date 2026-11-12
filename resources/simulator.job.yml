@@ -74,3 +74,5 @@ resources:
       permissions:
         - level: CAN_VIEW
           group_name: users
+        - level: CAN_MANAGE
+          service_principal_name: ${var.ci_service_principal}
