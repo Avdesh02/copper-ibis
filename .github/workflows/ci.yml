@@ -53,6 +53,8 @@ jobs:
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
 
+      # Nothing deploys prod today, but validating it keeps the config honest so it
+      # does not rot while unused. Remove this step only if the prod target goes too.
       - name: Validate prod target
         run: databricks bundle validate --strict --target prod
         env:

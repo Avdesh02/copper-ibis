@@ -160,8 +160,17 @@ databricks bundle run wind_turbine_simulator   --target dev   # generate test da
 databricks bundle run wind_turbine_orchestrator --target dev  # full chain
 ```
 
-Production is defined in the same bundle and deploys through the manual
-`cd-prod.yml` workflow.
+Production is defined in the same bundle but has no deploy workflow. When it is
+wanted, deploy it deliberately from a trusted machine:
+
+```bash
+python scripts/bootstrap_catalog.py --target prod
+databricks bundle validate --strict --target prod
+databricks bundle deploy --target prod
+```
+
+Note that the prod target unpauses the orchestrator schedule, so it begins running on
+its cron as soon as it is deployed.
 
 ---
 
@@ -194,7 +203,11 @@ ruff check src tests scripts
 |---|---|---|
 | `ci.yml` | PR, push to main | ruff, pytest, `bundle validate --strict` on every target |
 | `cd-ci.yml` | merge to main | bootstrap catalog, deploy the shared `ci` environment |
-| `cd-prod.yml` | manual only | confirmation input, tests, approval gate, deploy prod |
+
+There is deliberately **no prod deploy workflow**. Only dev and the shared `ci`
+environment are automated; prod is defined in the bundle but deployed by hand when
+someone decides to, which avoids an unattended path to production. CI still validates
+the prod target on every run so the config cannot silently rot.
 
 ### Targets
 
@@ -202,7 +215,7 @@ ruff check src tests scripts
 |---|---|---|---|
 | `dev` | `wind_dev_copper_ibis` | `dev_<user>_` | a developer, from their machine |
 | `ci` | `wind_dev_copper_ibis` | `ci_` | GitHub Actions, on merge to main |
-| `prod` | `wind_prod_copper_ibis` | *(none)* | GitHub Actions, manual dispatch |
+| `prod` | `wind_prod_copper_ibis` | *(none)* | nobody yet - deploy by hand (see below) |
 
 `dev` uses `mode: development`, which prefixes every object with the deploying
 identity — ideal for per-developer sandboxes that never collide. `ci` deliberately
@@ -246,8 +259,8 @@ file, a chat window, or anywhere it would be captured in history.
    | `DATABRICKS_CLIENT_ID` | `d4dc6166-ad2a-4490-a4e7-37cce791f5a9` |
    | `DATABRICKS_CLIENT_SECRET` | the generated secret |
 
-3. For prod approvals, create a `production` GitHub Environment with required
-   reviewers — `cd-prod.yml` gates on it.
+Nothing else is needed: dev and `ci` are fully automated, and prod has no workflow to
+gate.
 
 If a secret is ever exposed, revoke it immediately in the same Secrets tab and
 generate a new one; rotating costs nothing and a leaked secret grants deploy access to
