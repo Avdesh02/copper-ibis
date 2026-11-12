@@ -15,9 +15,9 @@ resources:
     wind_turbine_sdp:
       name: wind_turbine_sdp_copper_ibis
       catalog: ${var.catalog}
-      # Reference the deployed schema resources rather than literal names: in dev,
-      # `mode: development` prefixes schemas (raw -> dev_<user>_raw), so a hardcoded
-      # name would point at a schema that does not exist.
+      # Built from var.schema_prefix rather than a literal: each target resolves to a
+      # different schema (dev_<user>_bronze, ci_bronze, bronze), so a hardcoded name
+      # would point at a schema that does not exist in two of the three.
       schema: ${var.schema_prefix}bronze
 
       serverless: true

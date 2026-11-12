@@ -7,32 +7,32 @@ resources:
   schemas:
     raw:
       catalog_name: ${var.catalog}
-      name: raw
+      name: ${var.schema_resource_prefix}raw
       comment: Landing zone. Holds the Volume that Auto Loader reads source files from.
 
     bronze:
       catalog_name: ${var.catalog}
-      name: bronze
+      name: ${var.schema_resource_prefix}bronze
       comment: Raw ingested telemetry and turbine change events, as landed.
 
     silver:
       catalog_name: ${var.catalog}
-      name: silver
+      name: ${var.schema_resource_prefix}silver
       comment: Validated long/narrow sensor readings, the quarantine table, and the SCD2 turbine dimension.
 
     gold:
       catalog_name: ${var.catalog}
-      name: gold
+      name: ${var.schema_resource_prefix}gold
       comment: "Serving datasets: enriched readings, window aggregates, threshold alerts, current state."
 
     ops:
       catalog_name: ${var.catalog}
-      name: ops
+      name: ${var.schema_resource_prefix}ops
       comment: Operational metadata - site control table, run audit, and the pipeline event log.
 
   volumes:
     landing:
       catalog_name: ${var.catalog}
-      schema_name: raw
+      schema_name: ${var.schema_resource_prefix}raw
       name: landing
       comment: Landing zone for sensor telemetry (sensors/) and turbine master data (turbines/).

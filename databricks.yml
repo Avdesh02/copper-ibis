@@ -20,11 +20,21 @@ variables:
     description: Unity Catalog catalog holding every layer for this environment.
     default: wind_dev_copper_ibis
   schema_prefix:
-    # `mode: development` prefixes every schema resource with "dev_<user>_", so a
-    # literal "raw" would point at a schema that does not exist. Paths and table names
-    # are built from this prefix instead; prod leaves it empty.
+    # Prefix for schema names, and for every path and table name derived from them.
+    #
+    # It must match what the target actually deploys. Under `mode: development` the
+    # platform already prefixes resource names with "dev_<identity>_", so this is set
+    # to that same value and the schema resources themselves stay unprefixed (adding
+    # it there too would double it). Under `mode: production` nothing is prefixed
+    # automatically, so the ci target sets "ci_" here and it is applied directly.
     description: Prefix applied to schema names, matching the target's deployment mode.
-    default: "dev_${workspace.current_user.short_name}_"
+    default: ""
+  schema_resource_prefix:
+    # Prefix written into the schema RESOURCE names themselves. Empty under
+    # development mode, where the platform adds "dev_<identity>_" on its own; setting
+    # it there as well would produce "dev_user_dev_user_raw".
+    description: Literal prefix on schema resource names (empty when the mode adds one).
+    default: ""
   notification_email:
     description: Address notified when the orchestrator fails.
     default: python3todjango@gmail.com
@@ -56,6 +66,9 @@ targets:
       host: https://dbc-0090b005-ba2d.cloud.databricks.com
     variables:
       catalog: wind_dev_copper_ibis
+      # Mirrors the prefix development mode applies to the schema resources, so paths
+      # and table names resolve to the same schemas the platform actually created.
+      schema_prefix: "dev_${workspace.current_user.short_name}_"
     permissions:
       # Once a permissions block exists it must name every identity that manages the
       # bundle, the deploying user included - otherwise the workspace folder carries a
@@ -81,6 +94,7 @@ targets:
     variables:
       catalog: wind_dev_copper_ibis
       schema_prefix: "ci_"
+      schema_resource_prefix: "ci_"
     permissions:
       - user_name: python3todjango@gmail.com
         level: CAN_MANAGE
