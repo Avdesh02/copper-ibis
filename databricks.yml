@@ -48,14 +48,19 @@ targets:
     # runs stay clearly separated from anything else in this workspace.
     mode: development
     workspace:
-      profile: wind
+      # `host` rather than `profile`: a profile name only exists in a local
+      # .databrickscfg, so pinning one breaks CI, where the CLI authenticates from
+      # DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET. With `host`, both work --
+      # locally the CLI matches it to the `wind` profile, and in CI it uses the
+      # service principal. DATABRICKS_HOST overrides this when set.
+      host: https://dbc-0090b005-ba2d.cloud.databricks.com
     variables:
       catalog: wind_dev_copper_ibis
 
   prod:
     mode: production
     workspace:
-      profile: wind
+      host: https://dbc-0090b005-ba2d.cloud.databricks.com
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
       catalog: wind_prod_copper_ibis
